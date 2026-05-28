@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>飛盤大賽 - 官方報名系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #e0f2f1;
+        }
+        .handwritten {
+            font-family: 'Zhi Mang Xing', cursive;
+        }
+        .event-card {
+            transition: all 0.2s;
+            border: 2px solid #b2dfdb;
+        }
+        .event-card.selected {
+            border-color: #0d9488;
+            background-color: #f0fdfa;
+            transform: scale(1.02);
+        }
+        .stadium-bg {
+            background-image: radial-gradient(#ffffff 20%, transparent 20%), radial-gradient(#ffffff 20%, transparent 20%);
+            background-position: 0 0, 10px 10px;
+            background-size: 20px 20px;
+        }
+        .step-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+        .step-dot {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .ai-suggestion {
+            border-left: 4px solid #f59e0b;
+            background-color: #fffbeb;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.5s ease forwards;
+        }
+    </style>
+</head>
+<body className="stadium-bg">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const apiKey = ""; 
+
+        const EVENTS = [
+            { id: 'ultimate', name: "多人飛盤爭奪賽", price: 1500, icon: "🏃‍♂️", desc: "團隊合作的巔峰！在得分區接住飛盤來得分。", type: "團體" },
+            { id: 'golf', name: "個人飛盤高爾夫", price: 200, icon: "⛳", desc: "精準度與策略的考驗，將目標籃視為終點。", type: "個人" },
+            { id: 'scf', name: "計時回收飛盤", price: 150, icon: "⏱️", desc: "追求滯空時間與精準接盤的個人極限。", type: "個人" },
+            { id: 'distance', name: "飛盤遠投大賽", price: 150, icon: "🚀", desc: "展現爆發力，挑戰大賽最遠飛行紀錄。", type: "個人" },
+            { id: 'freestyle', name: "飛盤花式表演", price: 300, icon: "✨", desc: "自由自在的特技，與音樂共舞的視覺饗宴。", type: "個人/團體" },
+            { id: 'ddc', name: "雙飛盤賽 (DDC)", price: 300, icon: "⚖️", desc: "考驗心理素質與反應的雙盤博弈。", type: "團體" }
+        ];
+
+        // 呼叫 Gemini API 的通用函數 (具備指數退避重試機制)
+        async function callGemini(prompt, systemPrompt = "你是一位專業的飛盤大賽運動顧問。") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+            };
+
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) throw new Error('API Request Failed');
+                    const result = await response.json();
+                    return result.candidates?.[0]?.content?.parts?.[0]?.text || "抱歉，目前無法產生建議。";
+                } catch (error) {
+                    const delay = Math.pow(2, i) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            return "連線逾時，請稍後再試。";
+        }
+
+        function App() {
+            const [step, setStep] = useState(1); // 1: 選項, 2: 個資, 3: 完成與AI建議
+            const [registration, setRegistration] = useState([]);
+            const [submittedOrders, setSubmittedOrders] = useState([]);
+            const [aiSuggestion, setAiSuggestion] = useState("");
+            const [aiSlogan, setAiSlogan] = useState("");
+            const [isGeneratingSlogan, setIsGeneratingSlogan] = useState(false);
+
+            const [formData, setFormData] = useState({
+                name: "",
+                phone: "",
+                email: "",
+                org: "",
+                gender: "未提供",
+                birthday: ""
+            });
+
+            const [loading, setLoading] = useState(false);
+            const [message, setMessage] = useState("");
+
+            useEffect(() => {
+                const saved = localStorage.getItem('frisbee_contest_orders');
+                if (saved) {
+                    setSubmittedOrders(JSON.parse(saved));
+                }
+            }, []);
+
+            const toggleEvent = (event) => {
+                if (registration.find(e => e.id === event.id)) {
+                    setRegistration(prev => prev.filter(e => e.id !== event.id));
+                } else {
+                    setRegistration(prev => [...prev, event]);
+                }
+            };
+
+            const handleNextStep = () => {
+                if (registration.length === 0) {
+                    alert("請至少選擇一個比賽項目！");
+                    return;
+                }
+                setStep(2);
+                window.scrollTo(0, 0);
+            };
+
+            // ✨ 功能：生成個人參賽口號
+            const generateSlogan = async () => {
+                if (!formData.name) {
+                    alert("請先輸入您的姓名以便 AI 生成專屬口號！");
+                    return;
+                }
+                setIsGeneratingSlogan(true);
+                const eventNames = registration.map(e => e.name).join('、');
+                const prompt = `我叫 ${formData.name}，所屬單位為 ${formData.org || '個人'}，我參加了飛盤大賽的項目：${eventNames}。請幫我寫一句短短、有朝氣、且包含飛盤元素的中文參賽口號。只要輸出那句話就好。`;
+                const slogan = await callGemini(prompt, "你是一個充滿熱血的運動比賽激勵員。");
+                setAiSlogan(slogan.replace(/"/g, ''));
+                setIsGeneratingSlogan(false);
+            };
+
+            const handleRegister = async () => {
+                if (!formData.name || !formData.phone || !formData.email) {
+                    alert("請填寫必填的個人資料！");
+                    return;
+                }
+                setLoading(true);
+                
+                const newOrder = {
+                    id: "FID-" + Date.now().toString().slice(-6),
+                    ...formData,
+                    slogan: aiSlogan,
+                    events: [...registration],
+                    total: registration.reduce((sum, e) => sum + e.price, 0),
+                    status: '待審核',
+                    time: new Date().toLocaleString()
+                };
+
+                const eventNames = registration.map(e => e.name).join('、');
+                const aiPrompt = `我的名字是 ${formData.name}，來自 ${formData.org || '個人'}，報名了：${eventNames}。請針對這些項目提供三條具體的賽前訓練建議或規則提醒。請使用活潑且專業的口氣。`;
+                const suggestion = await callGemini(aiPrompt);
+                setAiSuggestion(suggestion);
+
+                setTimeout(() => {
+                    const saved = localStorage.getItem('frisbee_contest_orders');
+                    const currentOrders = saved ? JSON.parse(saved) : [];
+                    const updated = [newOrder, ...currentOrders];
+                    setSubmittedOrders(updated);
+                    localStorage.setItem('frisbee_contest_orders', JSON.stringify(updated));
+                    setStep(3);
+                    setLoading(false);
+                }, 1000);
+            };
+
+            const resetForm = () => {
+                setRegistration([]);
+                setFormData({ name: "", phone: "", email: "", org: "", gender: "未提供", birthday: "" });
+                setAiSlogan("");
+                setAiSuggestion("");
+                setStep(1);
+            };
+
+            return (
+                <div className="min-h-screen pb-20">
+                    <nav className="bg-teal-700 shadow-xl p-4 flex justify-between items-center mb-6 sticky top-0 z-50">
+                        <div className="flex items-center space-x-2 text-white">
+                            <span className="text-3xl">🥏</span>
+                            <h1 className="text-3xl font-bold handwritten">飛盤大賽 - 線上報名系統</h1>
+                        </div>
+                        <div className="text-white text-sm hidden md:block">
+                            歡迎挑戰自我，爭取最高榮耀！
+                        </div>
+                    </nav>
+
+                    <div className="container mx-auto px-4 max-w-6xl">
+                        <div className="step-indicator">
+                            <div className={`step-dot ${step >= 1 ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-500'}`}>1</div>
+                            <div className={`w-12 h-1 mx-2 ${step >= 2 ? 'bg-teal-600' : 'bg-gray-200'}`}></div>
+                            <div className={`step-dot ${step >= 2 ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-500'}`}>2</div>
+                            <div className={`w-12 h-1 mx-2 ${step >= 3 ? 'bg-teal-600' : 'bg-gray-200'}`}></div>
+                            <div className={`step-dot ${step >= 3 ? 'bg-teal-600 text-white' : 'bg-gray-200 text-gray-500'}`}>3</div>
+                        </div>
+
+                        {step === 1 && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fadeIn">
+                                <div className="lg:col-span-2">
+                                    <div className="bg-white p-6 rounded-3xl mb-8 shadow-sm border-l-8 border-teal-500">
+                                        <h2 className="text-2xl font-bold text-gray-800">第一步：選取參賽項目</h2>
+                                        <p className="text-gray-500 text-sm">請勾選您想要挑戰的飛盤運動項目（可複選）。</p>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {EVENTS.map(event => (
+                                            <div key={event.id} onClick={() => toggleEvent(event)} className={`p-5 rounded-2xl event-card flex items-start space-x-4 cursor-pointer bg-white ${registration.find(e => e.id === event.id) ? 'selected' : ''}`}>
+                                                <div className="text-4xl">{event.icon}</div>
+                                                <div className="flex-1">
+                                                    <h3 className="font-bold text-lg text-teal-800">{event.name}</h3>
+                                                    <p className="text-xs text-gray-500">{event.desc}</p>
+                                                    <div className="text-sm font-bold text-orange-500 mt-2">NT$ {event.price}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="lg:col-span-1">
+                                    <div className="bg-white p-6 rounded-3xl shadow-xl sticky top-28 border-t-4 border-teal-500">
+                                        <h3 className="text-xl font-bold mb-4">結帳明細</h3>
+                                        <div className="space-y-2 mb-6 min-h-[100px]">
+                                            {registration.map(e => (
+                                                <div key={e.id} className="flex justify-between text-sm py-1 border-b border-gray-50">
+                                                    <span>{e.name}</span>
+                                                    <span className="font-bold">${e.price}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="flex justify-between text-lg font-bold border-t pt-4 mb-6 text-teal-800">
+                                            <span>總計</span>
+                                            <span>NT$ {registration.reduce((sum, e) => sum + e.price, 0)}</span>
+                                        </div>
+                                        <button onClick={handleNextStep} className="w-full bg-teal-600 text-white font-bold py-4 rounded-2xl shadow-lg hover:bg-teal-700 transition">下一步</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 2 && (
+                            <div className="max-w-2xl mx-auto bg-white p-8 rounded-3xl shadow-2xl animate-fadeIn">
+                                <h2 className="text-2xl font-bold text-teal-800 mb-6">📝 選手基本資料</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="col-span-2 md:col-span-1">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">真實姓名 *</label>
+                                        <input type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="請輸入姓名"/>
+                                    </div>
+                                    <div className="col-span-2 md:col-span-1">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">參賽代表單位</label>
+                                        <input type="text" value={formData.org} onChange={e => setFormData({...formData, org: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="學校 / 俱樂部 / 公司名稱"/>
+                                    </div>
+                                    <div className="col-span-2 md:col-span-1">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">聯絡電話 *</label>
+                                        <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="請輸入電話"/>
+                                    </div>
+                                    <div className="col-span-2 md:col-span-1">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">Email *</label>
+                                        <input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none" placeholder="example@mail.com"/>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">參賽口號 (✨ AI 生成)</label>
+                                        <div className="flex space-x-2">
+                                            <input type="text" value={aiSlogan} onChange={e => setAiSlogan(e.target.value)} className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-orange-50 focus:ring-2 focus:ring-orange-300 outline-none" placeholder="讓 AI 幫您想個酷炫口號"/>
+                                            <button onClick={generateSlogan} disabled={isGeneratingSlogan} className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold hover:bg-orange-600 transition disabled:opacity-50">
+                                                {isGeneratingSlogan ? "生成中" : "✨ 生成"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-8 flex space-x-4">
+                                    <button onClick={() => setStep(1)} className="flex-1 py-4 rounded-2xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition">上一步</button>
+                                    <button onClick={handleRegister} disabled={loading} className="flex-[2] py-4 rounded-2xl font-bold text-white bg-teal-600 shadow-md hover:bg-teal-700 transition">
+                                        {loading ? "送出中..." : "確認報名"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 3 && (
+                            <div className="max-w-2xl mx-auto bg-white p-10 rounded-3xl shadow-2xl animate-fadeIn text-center">
+                                <div className="text-6xl mb-4">🏆</div>
+                                <h2 className="text-3xl font-bold text-teal-800 mb-8">報名成功！</h2>
+                                <div className="ai-suggestion p-6 rounded-2xl text-left mb-8 shadow-inner">
+                                    <div className="font-bold text-orange-600 mb-2 flex items-center"><span className="mr-2">✨</span> AI 賽前建議</div>
+                                    <div className="text-gray-700 whitespace-pre-line text-sm leading-relaxed">{aiSuggestion}</div>
+                                </div>
+                                <button onClick={resetForm} className="w-full bg-teal-600 text-white font-bold py-4 rounded-2xl hover:bg-teal-700 transition">回首頁</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
