@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>飛盤大賽 - 大賽管理後台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #e0f2f1;
+        }
+        .handwritten {
+            font-family: 'Zhi Mang Xing', cursive;
+        }
+        .stadium-bg {
+            background-image: radial-gradient(#ffffff 20%, transparent 20%), radial-gradient(#ffffff 20%, transparent 20%);
+            background-position: 0 0, 10px 10px;
+            background-size: 20px 20px;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.5s ease forwards;
+        }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+    </style>
+</head>
+<body className="stadium-bg">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            const [submittedOrders, setSubmittedOrders] = useState([]);
+            const [editingOrder, setEditingOrder] = useState(null);
+            const [editForm, setEditForm] = useState({ name: "", phone: "", slogan: "", org: "" });
+            const [message, setMessage] = useState("");
+
+            // 即時自瀏覽器資料庫讀取報名資料
+            const loadOrders = () => {
+                const saved = localStorage.getItem('frisbee_contest_orders');
+                if (saved) {
+                    setSubmittedOrders(JSON.parse(saved));
+                } else {
+                    setSubmittedOrders([]);
+                }
+            };
+
+            useEffect(() => {
+                loadOrders();
+                // 設定監聽事件，以便在同一個瀏覽器下多視窗操作時，資料能自前台即時更新
+                window.addEventListener('storage', loadOrders);
+                return () => {
+                    window.removeEventListener('storage', loadOrders);
+                };
+            }, []);
+
+            const updateStatus = (id, newStatus) => {
+                const updated = submittedOrders.map(o => o.id === id ? {...o, status: newStatus} : o);
+                setSubmittedOrders(updated);
+                localStorage.setItem('frisbee_contest_orders', JSON.stringify(updated));
+                setMessage("審核狀態已更新！");
+                setTimeout(() => setMessage(""), 2000);
+            };
+
+            const openEditModal = (order) => {
+                setEditingOrder(order.id);
+                setEditForm({ name: order.name, phone: order.phone, slogan: order.slogan, org: order.org || "" });
+            };
+
+            const saveEdit = () => {
+                const updated = submittedOrders.map(o => 
+                    o.id === editingOrder ? { ...o, ...editForm } : o
+                );
+                setSubmittedOrders(updated);
+                localStorage.setItem('frisbee_contest_orders', JSON.stringify(updated));
+                setEditingOrder(null);
+                setMessage("選手資料修改成功！");
+                setTimeout(() => setMessage(""), 2000);
+            };
+
+            const clearDatabase = () => {
+                if(confirm("確定要清除所有報名紀錄嗎？此動作無法復原。")) {
+                    setSubmittedOrders([]);
+                    localStorage.removeItem('frisbee_contest_orders');
+                    setMessage("資料庫已成功清空！");
+                    setTimeout(() => setMessage(""), 2000);
+                }
+            };
+
+            return (
+                <div className="min-h-screen pb-20">
+                    <nav className="bg-teal-700 shadow-xl p-4 flex justify-between items-center mb-6 sticky top-0 z-50">
+                        <div className="flex items-center space-x-2 text-white">
+                            <span className="text-3xl">🎛️</span>
+                            <h1 className="text-3xl font-bold handwritten">飛盤大賽 - 大賽管理後台</h1>
+                        </div>
+                        <div className="text-white text-sm">
+                            即時連動報名系統
+                        </div>
+                    </nav>
+
+                    {message && (
+                        <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-yellow-400 text-teal-900 px-8 py-3 rounded-full shadow-2xl z-[60] font-bold border-2 border-white animate-bounce">
+                            {message}
+                        </div>
+                    )}
+
+                    <div className="container mx-auto px-4 max-w-6xl">
+                        <div className="bg-white rounded-3xl shadow-xl overflow-hidden animate-fadeIn border border-teal-100">
+                            <div className="bg-teal-50 p-6 border-b border-teal-100 flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-teal-800 handwritten">選手名冊審核中心</h2>
+                                    <p className="text-teal-600 text-sm">報名總數：{submittedOrders.length} 人</p>
+                                </div>
+                                <div className="flex space-x-3">
+                                    <button onClick={loadOrders} className="text-xs bg-teal-100 text-teal-800 px-4 py-2 rounded-full font-bold hover:bg-teal-200 transition">整理重新整理</button>
+                                    <button onClick={clearDatabase} className="text-xs bg-red-100 text-red-600 px-4 py-2 rounded-full font-bold hover:bg-red-200 transition">清空資料庫</button>
+                                </div>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-gray-50 text-gray-400 text-xs font-bold uppercase">
+                                        <tr>
+                                            <th className="px-6 py-4">選手/單位</th>
+                                            <th className="px-6 py-4">參賽口號</th>
+                                            <th className="px-6 py-4">聯絡資訊</th>
+                                            <th className="px-6 py-4">項目/總額</th>
+                                            <th className="px-6 py-4">狀態</th>
+                                            <th className="px-6 py-4 text-center">管理功能</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50">
+                                        {submittedOrders.length === 0 ? (
+                                            <tr><td colSpan="6" className="px-6 py-20 text-center text-gray-400 italic font-medium">目前尚未有任何選手完成報名。</td></tr>
+                                        ) : (
+                                            submittedOrders.map(order => (
+                                                <tr key={order.id} className="hover:bg-teal-50/30 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-bold text-gray-800 text-base">{order.name}</div>
+                                                        <div className="text-[11px] text-gray-500 font-medium">🏢 {order.org || "個人名義"}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="text-[11px] text-teal-600 italic font-medium max-w-[150px] line-clamp-2">「{order.slogan || "無口號"}」</div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs space-y-1">
+                                                        <div className="flex items-center"><span className="mr-1">📞</span> {order.phone}</div>
+                                                        <div className="text-gray-400 flex items-center"><span className="mr-1">✉️</span> {order.email}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {order.events.map(e => <span key={e.id} className="text-[10px] bg-white border border-teal-200 text-teal-700 px-1.5 py-0.5 rounded-md">{e.name}</span>)}
+                                                        </div>
+                                                        <div className="text-sm font-bold text-orange-600 mt-2">NT$ {order.total}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <span className={`text-[11px] px-3 py-1 rounded-full font-bold ${order.status === '錄取' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                            {order.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex flex-col space-y-2 items-center">
+                                                            <button onClick={() => updateStatus(order.id, order.status === '錄取' ? '待審核' : '錄取')} className={`text-xs w-25 py-1.5 px-3 rounded-lg font-bold border ${order.status === '錄取' ? 'border-yellow-500 text-yellow-600 hover:bg-yellow-50' : 'border-green-600 text-green-700 hover:bg-green-50'}`}>
+                                                                {order.status === '錄取' ? '取消錄取' : '核准錄取'}
+                                                            </button>
+                                                            <button onClick={() => openEditModal(order)} className="text-xs w-25 py-1.5 px-3 rounded-lg font-bold border border-teal-600 text-teal-700 hover:bg-teal-50">
+                                                                修改資料
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 修改資料彈窗 (Modal) */}
+                    {editingOrder && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-overlay">
+                            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 animate-fadeIn border-t-8 border-teal-600">
+                                <h3 className="text-2xl font-bold text-teal-800 mb-6 flex items-center">
+                                    <span className="mr-2">⚙️</span> 修改選手資料
+                                </h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">姓名</label>
+                                        <input 
+                                            type="text" 
+                                            value={editForm.name} 
+                                            onChange={e => setEditForm({...editForm, name: e.target.value})}
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">代表單位</label>
+                                        <input 
+                                            type="text" 
+                                            value={editForm.org} 
+                                            onChange={e => setEditForm({...editForm, org: e.target.value})}
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">電話</label>
+                                        <input 
+                                            type="text" 
+                                            value={editForm.phone} 
+                                            onChange={e => setEditForm({...editForm, phone: e.target.value})}
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">參賽口號</label>
+                                        <textarea 
+                                            rows="2"
+                                            value={editForm.slogan} 
+                                            onChange={e => setEditForm({...editForm, slogan: e.target.value})}
+                                            className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:ring-2 focus:ring-teal-500 outline-none"
+                                        ></textarea>
+                                    </div>
+                                </div>
+                                <div className="mt-8 flex space-x-3">
+                                    <button onClick={() => setEditingOrder(null)} className="flex-1 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200 transition">取消</button>
+                                    <button onClick={saveEdit} className="flex-1 py-3 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 shadow-lg transition">儲存修改</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
